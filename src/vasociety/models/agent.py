@@ -38,8 +38,10 @@ class Agent:
     seen_content_ids: set[str] = field(default_factory=set)
     created_post_ids: list[str] = field(default_factory=list)
     action_history: list[ActionRecord] = field(default_factory=list)
+    topic_beliefs: dict[str, float] = field(default_factory=dict)
+    topic_stances: dict[str, str] = field(default_factory=dict)
+    trust_scores: dict[str, float] = field(default_factory=dict)
+    stance_update_history: list[dict[str, str | int | float]] = field(default_factory=list)
 
     def record_action(self, record: ActionRecord) -> None:
-        """Append action to in-memory history."""
-
         self.action_history.append(record)

@@ -10,11 +10,14 @@ from vasociety.models.state import SimulationState
 class InterventionHandler:
     """Apply supported intervention types to simulation state."""
 
-    def apply(self, intervention: Intervention, state: SimulationState) -> None:
+    def apply(self, intervention: Intervention, state: SimulationState) -> dict[str, str]:
         if intervention.type == "inject_news":
             self._inject_news(intervention, state)
         elif intervention.type == "inject_fact_check":
             self._inject_fact_check(intervention, state)
+        elif intervention.type in {"platform_boost", "platform_suppress", "targeted_push"}:
+            return {"status": "reserved", "type": intervention.type}
+        return {"status": "applied", "type": intervention.type}
 
     @staticmethod
     def _inject_news(intervention: Intervention, state: SimulationState) -> None:
@@ -26,11 +29,11 @@ class InterventionHandler:
             created_at_step=state.current_step,
             content=payload["content"],
             topic=payload["topic"],
-            stance=payload["stance"],
+            stance=payload.get("stance", "uncertain"),
             source_type=payload.get("source_type", "official"),
             visibility=payload.get("visibility", "public"),
             heat=2.0,
-            metadata={"intervention_id": intervention.intervention_id},
+            metadata={"intervention_id": intervention.intervention_id, "kind": "news"},
         )
 
     @staticmethod
@@ -47,5 +50,5 @@ class InterventionHandler:
             source_type="fact_check",
             visibility=payload.get("visibility", "public"),
             heat=2.2,
-            metadata={"intervention_id": intervention.intervention_id},
+            metadata={"intervention_id": intervention.intervention_id, "kind": "fact_check"},
         )

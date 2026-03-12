@@ -10,8 +10,6 @@ from vasociety.types import SourceType
 
 @dataclass(slots=True)
 class Post:
-    """Post object in the simulated platform."""
-
     post_id: str
     author_id: str
     created_at_step: int
@@ -30,8 +28,6 @@ class Post:
 
 @dataclass(slots=True)
 class Comment:
-    """Comment object linked to a post."""
-
     comment_id: str
     post_id: str
     author_id: str
@@ -42,10 +38,9 @@ class Comment:
 
 @dataclass(slots=True)
 class FeedItem:
-    """One ranked item surfaced in an agent feed."""
-
     item_id: str
     item_type: str
     ref_id: str
     score: float
     reason: str
+    breakdown: dict[str, float] = field(default_factory=dict)

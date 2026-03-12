@@ -4,17 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vasociety"
-version = "0.1.0"
-description = "Phase-1 multi-agent public-opinion simulation kernel"
+version = "0.2.0"
+description = "VASociety v0.2 simulation framework"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "VASociety Team"}]
-dependencies = []
+dependencies = [
+  "PyYAML>=6.0",
+]
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=8.0",
-]
+dev = ["pytest>=8.0"]
 
 [project.scripts]
 vasociety = "vasociety.cli.main:main"
