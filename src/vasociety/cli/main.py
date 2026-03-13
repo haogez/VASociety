@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -13,7 +14,7 @@ from vasociety.analytics.explain import generate_explanation_summary
 from vasociety.analytics.trace_analyzer import metrics_trace_consistency, validate_decision_trace_schema
 from vasociety.agents.factory import AgentFactory
 from vasociety.agents.policy import AgentPolicy
-from vasociety.config import load_config
+from vasociety.config import INTERVENTION_TYPES, load_config
 from vasociety.environment.feed_ranker import FeedRanker, FeedWeights
 from vasociety.environment.platform import PlatformEnvironment
 from vasociety.interventions.handlers import InterventionHandler
@@ -21,6 +22,7 @@ from vasociety.interventions.scheduler import InterventionScheduler
 from vasociety.io.load import load_runtime_state, parse_interventions
 from vasociety.io.save import save_state
 from vasociety.logger import setup_logger
+from vasociety.models.intervention import Intervention
 from vasociety.models.state import SimulationState
 from vasociety.simulation.engine import SimulationEngine
 from vasociety.simulation.executor import ActionExecutor
@@ -115,6 +117,230 @@ def run_single_scenario(
 
 def run(config: Path) -> SimulationState:
     return run_single_scenario(config=config)
+
+
+def _pending_interventions(state: SimulationState) -> list[Intervention]:
+    return sorted(
+        [item for item in state.interventions if int(item.step) > state.current_step],
+        key=lambda item: (int(item.step), str(item.intervention_id)),
+    )
+
+
+def _print_step_summary(state: SimulationState) -> None:
+    latest = state.metrics_history[-1] if state.metrics_history else None
+    pending_count = len(_pending_interventions(state))
+    if latest is None:
+        print(f"[step={state.current_step}] posts={len(state.posts)} comments={len(state.comments)} pending={pending_count}")
+        return
+    print(
+        "[step={step}] posts={posts} comments={comments} active={active} heat={heat:.3f} pending={pending}".format(
+            step=state.current_step,
+            posts=latest.total_posts,
+            comments=latest.total_comments,
+            active=latest.active_agents,
+            heat=float(latest.discussion_heat),
+            pending=pending_count,
+        )
+    )
+
+
+def _print_runtime_status(state: SimulationState, planned_steps: int) -> None:
+    print(f"Current step: {state.current_step} (scenario plan: {planned_steps})")
+    _print_step_summary(state)
+    pending = _pending_interventions(state)
+    if not pending:
+        print("Pending interventions: none")
+        return
+    preview = ", ".join(f"{item.step}:{item.type}({item.intervention_id})" for item in pending[:10])
+    suffix = " ..." if len(pending) > 10 else ""
+    print(f"Pending interventions: {preview}{suffix}")
+
+
+def _resolve_intervention_step(step_token: str, current_step: int) -> int:
+    lowered = step_token.lower()
+    if lowered in {"next", "now"}:
+        return current_step + 1
+    step = int(step_token)
+    if step <= current_step:
+        raise ValueError(f"Intervention step must be > current step ({current_step})")
+    return step
+
+
+def _parse_intervention_payload(raw: str) -> dict[str, Any]:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("Intervention payload must be a JSON object")
+    return dict(payload)
+
+
+def _manual_help() -> str:
+    return (
+        "Commands:\n"
+        "  step | s                    run one step\n"
+        "  run <n>                     run n steps\n"
+        "  runall                      run until configured simulation_steps\n"
+        "  add <step|next|now> <type> [json_payload]\n"
+        "                              example: add next inject_news '{\"content\":\"x\",\"topic\":\"healthcare\"}'\n"
+        "  status                      print runtime status\n"
+        "  save                        write outputs now\n"
+        "  help                        print this help\n"
+        "  quit | exit                 save and exit"
+    )
+
+
+def run_stepwise_scenario(
+    config: Path,
+    output_dir: Path | None = None,
+    seed: int | None = None,
+    steps: int | None = None,
+    snapshot_each_step: bool | None = None,
+    write_decision_trace: bool | None = None,
+    scripted_commands: list[str] | None = None,
+) -> SimulationState:
+    cfg = load_config(config)
+    if output_dir is not None:
+        cfg.output.output_dir = output_dir
+    if seed is not None:
+        cfg.simulation.random_seed = int(seed)
+    if steps is not None:
+        cfg.simulation.simulation_steps = max(1, int(steps))
+    if snapshot_each_step is not None:
+        cfg.output.snapshot_each_step = bool(snapshot_each_step)
+    if write_decision_trace is not None:
+        cfg.output.write_decision_trace = bool(write_decision_trace)
+
+    logger = setup_logger(cfg.log_level, cfg.output.output_dir)
+    engine, _ = _build_engine(cfg)
+    planned_steps = int(cfg.simulation.simulation_steps)
+    manual_id_seq = len(engine.state.interventions)
+    command_cursor = 0
+    reached_plan_notified = False
+
+    print("\n=== VASociety Step Mode ===")
+    print(f"Scenario: {cfg.scenario_name}")
+    print(f"Run ID: {engine.state.run_id}")
+    print(f"Output dir: {cfg.output.output_dir}")
+    print(_manual_help())
+    _print_runtime_status(engine.state, planned_steps)
+
+    while True:
+        if engine.state.current_step >= planned_steps and not reached_plan_notified:
+            print(
+                f"Reached configured simulation_steps={planned_steps}. "
+                "You can still use step/run for extra steps or quit."
+            )
+            reached_plan_notified = True
+
+        if scripted_commands is None:
+            raw_command = input(f"vasociety(step={engine.state.current_step})> ").strip()
+        else:
+            if command_cursor >= len(scripted_commands):
+                raw_command = "quit"
+            else:
+                raw_command = scripted_commands[command_cursor]
+                command_cursor += 1
+                print(f"vasociety(step={engine.state.current_step})> {raw_command}")
+            raw_command = raw_command.strip()
+
+        if not raw_command:
+            continue
+        try:
+            tokens = shlex.split(raw_command)
+        except ValueError as exc:
+            print(f"Invalid command syntax: {exc}")
+            continue
+        if not tokens:
+            continue
+
+        command = tokens[0].lower()
+        try:
+            if command in {"help", "h", "?"}:
+                print(_manual_help())
+                continue
+
+            if command == "status":
+                _print_runtime_status(engine.state, planned_steps)
+                continue
+
+            if command in {"step", "s"}:
+                engine.step(snapshot_each_step=cfg.output.snapshot_each_step)
+                _print_step_summary(engine.state)
+                continue
+
+            if command == "runall":
+                remaining = max(0, planned_steps - engine.state.current_step)
+                if remaining == 0:
+                    print("No remaining planned steps. Use step/run to continue manually.")
+                else:
+                    for _ in range(remaining):
+                        engine.step(snapshot_each_step=cfg.output.snapshot_each_step)
+                _print_step_summary(engine.state)
+                continue
+
+            if command == "run":
+                if len(tokens) < 2:
+                    raise ValueError("Usage: run <n>")
+                count = int(tokens[1])
+                if count <= 0:
+                    raise ValueError("run count must be >= 1")
+                for _ in range(count):
+                    engine.step(snapshot_each_step=cfg.output.snapshot_each_step)
+                _print_step_summary(engine.state)
+                continue
+
+            if command == "add":
+                if len(tokens) < 3:
+                    raise ValueError("Usage: add <step|next|now> <type> [json_payload]")
+                step = _resolve_intervention_step(tokens[1], engine.state.current_step)
+                intervention_type = str(tokens[2])
+                if intervention_type not in INTERVENTION_TYPES:
+                    valid = ", ".join(sorted(INTERVENTION_TYPES))
+                    raise ValueError(f"Unsupported intervention type '{intervention_type}', expected one of: {valid}")
+                payload = _parse_intervention_payload(" ".join(tokens[3:])) if len(tokens) > 3 else {}
+                manual_id_seq += 1
+                intervention_id = str(payload.pop("intervention_id", f"manual_{manual_id_seq:03d}"))
+                intervention = Intervention(
+                    intervention_id=intervention_id,
+                    step=step,
+                    type=intervention_type,
+                    payload=payload,
+                )
+                engine.schedule_intervention(intervention)
+                print(
+                    f"Added intervention id={intervention.intervention_id} "
+                    f"type={intervention.type} step={intervention.step}"
+                )
+                continue
+
+            if command == "save":
+                save_state(engine.state, cfg.output.output_dir, write_decision_trace=cfg.output.write_decision_trace)
+                print(f"Saved outputs to: {cfg.output.output_dir}")
+                continue
+
+            if command in {"quit", "exit", "q"}:
+                save_state(engine.state, cfg.output.output_dir, write_decision_trace=cfg.output.write_decision_trace)
+                latest = engine.state.metrics_history[-1] if engine.state.metrics_history else None
+                print("\n=== VASociety Step Summary ===")
+                print(f"Run ID: {engine.state.run_id}")
+                print(f"Scenario: {cfg.scenario_name}")
+                print(f"Current step: {engine.state.current_step}")
+                if latest is not None:
+                    print(f"Total posts: {latest.total_posts}")
+                    print(f"Total comments: {latest.total_comments}")
+                    print(f"Discussion heat: {latest.discussion_heat}")
+                    print(f"Stance shifts: {latest.stance_shift_count}")
+                print(f"Outputs saved to: {cfg.output.output_dir}")
+                logger.info(
+                    "Step mode completed at step=%s with posts=%s comments=%s",
+                    engine.state.current_step,
+                    latest.total_posts if latest is not None else 0,
+                    latest.total_comments if latest is not None else 0,
+                )
+                return engine.state
+
+            raise ValueError(f"Unknown command '{tokens[0]}'. Use 'help' for command list.")
+        except ValueError as exc:
+            print(f"Command error: {exc}")
 
 
 def _load_experiment_payload(path: Path) -> dict[str, Any]:
@@ -242,6 +468,14 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--snapshot-each-step", action=argparse.BooleanOptionalAction, default=None)
     run_parser.add_argument("--write-decision-trace", action=argparse.BooleanOptionalAction, default=None)
 
+    step_parser = subparsers.add_parser("step", help="Run simulation in interactive step mode")
+    step_parser.add_argument("--config", "-c", type=Path, default=Path("configs/scenarios/demo.yaml"))
+    step_parser.add_argument("--output-dir", type=Path, default=None)
+    step_parser.add_argument("--seed", type=int, default=None)
+    step_parser.add_argument("--steps", type=int, default=None)
+    step_parser.add_argument("--snapshot-each-step", action=argparse.BooleanOptionalAction, default=None)
+    step_parser.add_argument("--write-decision-trace", action=argparse.BooleanOptionalAction, default=None)
+
     exp_parser = subparsers.add_parser("experiment", help="Run multi-scenario multi-seed experiment")
     exp_parser.add_argument("--experiment-config", type=Path, default=None)
     exp_parser.add_argument("--scenarios", nargs="+", type=Path, default=None)
@@ -261,7 +495,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    known_commands = {"run", "experiment", "analyze"}
+    known_commands = {"run", "step", "experiment", "analyze"}
     if not raw_args:
         raw_args = ["run"]
     elif raw_args[0] not in known_commands:
@@ -280,6 +514,17 @@ def main(argv: list[str] | None = None) -> None:
             snapshot_each_step=args.snapshot_each_step,
             write_decision_trace=args.write_decision_trace,
             emit_summary=True,
+        )
+        return
+
+    if args.command == "step":
+        run_stepwise_scenario(
+            config=args.config,
+            output_dir=args.output_dir,
+            seed=args.seed,
+            steps=args.steps,
+            snapshot_each_step=args.snapshot_each_step,
+            write_decision_trace=args.write_decision_trace,
         )
         return
 

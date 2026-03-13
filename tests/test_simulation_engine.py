@@ -121,3 +121,25 @@ def test_fixed_seed_runtime_reproducible() -> None:
     state_b = _build_engine(seed=13, interventions=interventions).run(steps=5)
     assert [m.active_agents for m in state_a.metrics_history] == [m.active_agents for m in state_b.metrics_history]
     assert [m.discussion_heat for m in state_a.metrics_history] == [m.discussion_heat for m in state_b.metrics_history]
+
+
+def test_engine_step_mode_supports_dynamic_intervention() -> None:
+    engine = _build_engine(seed=19, interventions=[])
+    engine.step(snapshot_each_step=False)
+    assert engine.state.current_step == 1
+
+    intervention = Intervention(
+        intervention_id="manual_001",
+        step=2,
+        type="inject_news",
+        payload={"content": "dynamic", "topic": "healthcare", "stance": "uncertain", "source_type": "official"},
+    )
+    engine.schedule_intervention(intervention)
+    engine.step(snapshot_each_step=False)
+
+    assert engine.state.current_step == 2
+    assert any(post.metadata.get("intervention_id") == "manual_001" for post in engine.state.posts.values())
+    assert any(
+        item.get("event") == "intervention" and item.get("payload", {}).get("intervention_id") == "manual_001"
+        for item in engine.state.event_log
+    )

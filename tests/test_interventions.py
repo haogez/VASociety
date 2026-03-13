@@ -37,6 +37,13 @@ def test_intervention_scheduler_by_step() -> None:
     assert [item.intervention_id for item in scheduler.get_for_step(3)] == ["b"]
 
 
+def test_intervention_scheduler_supports_dynamic_add() -> None:
+    scheduler = InterventionScheduler([])
+    scheduler.add_intervention(Intervention("m1", 2, "inject_news", {"topic": "healthcare", "content": "x"}))
+    assert scheduler.get_for_step(1) == []
+    assert [item.intervention_id for item in scheduler.get_for_step(2)] == ["m1"]
+
+
 def test_platform_boost_changes_feed_ranking() -> None:
     agent = _agent()
     state = SimulationState(current_step=1)

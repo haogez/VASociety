@@ -56,7 +56,31 @@ vasociety run --config configs/scenarios/demo.yaml
 vasociety --config configs/scenarios/demo.yaml
 ```
 
-### 2) experiment
+### 2) step (interactive)
+
+逐 step 推进，并在运行中动态添加干预：
+
+```bash
+vasociety step --config configs/scenarios/demo.yaml
+```
+
+进入交互模式后常用命令：
+
+- `step` / `s`
+- `run <n>`
+- `runall`
+- `add <step|next|now> <type> [json_payload]`
+- `status`
+- `save`
+- `quit`
+
+示例（下一步插入新闻干预）：
+
+```text
+add next inject_news '{"content":"manual","topic":"healthcare","stance":"uncertain","source_type":"official"}'
+```
+
+### 3) experiment
 
 两种方式：
 
@@ -78,7 +102,7 @@ vasociety experiment --experiment-config configs/experiments/demo_experiment.yam
 
 会在实验目录下生成 `run_001/`, `run_002/`, ... 与 `summary.json`。
 
-### 3) analyze
+### 4) analyze
 
 对某个 run 输出目录做分析汇总：
 

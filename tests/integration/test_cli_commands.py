@@ -81,3 +81,30 @@ def test_cli_experiment_and_analyze_commands(tmp_path: Path) -> None:
     main(["analyze", "--output-dir", str(exp_output / "run_001")])
     report = json.loads((exp_output / "run_001" / "analysis_report.json").read_text(encoding="utf-8"))
     assert report["trace_schema"]["is_valid"] is True
+
+
+def test_cli_step_mode_supports_runtime_interventions(tmp_path: Path, monkeypatch) -> None:
+    scenario = tmp_path / "scenario.yaml"
+    run_output = tmp_path / "step_output"
+    _write_scenario(scenario, run_output, steps=2)
+
+    commands = iter(
+        [
+            "add next inject_news '{\"content\":\"manual\",\"topic\":\"healthcare\",\"stance\":\"uncertain\",\"source_type\":\"official\"}'",
+            "step",
+            "run 1",
+            "quit",
+        ]
+    )
+    monkeypatch.setattr("builtins.input", lambda _: next(commands))
+
+    main(["step", "--config", str(scenario)])
+
+    metrics = json.loads((run_output / "metrics_history.json").read_text(encoding="utf-8"))
+    intervention_records = [
+        json.loads(line)
+        for line in (run_output / "intervention_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(metrics) == 2
+    assert any(item.get("intervention_id", "").startswith("manual_") for item in intervention_records)

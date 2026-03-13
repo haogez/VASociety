@@ -13,6 +13,7 @@ from vasociety.interventions.scheduler import InterventionScheduler
 from vasociety.metrics.collector import MetricsCollector
 from vasociety.models.agent import Agent
 from vasociety.models.content import FeedItem
+from vasociety.models.intervention import Intervention
 from vasociety.models.metrics import MetricsSnapshot
 from vasociety.models.state import SimulationState
 from vasociety.social.graph import ensure_social_graph
@@ -52,10 +53,13 @@ class SimulationEngine:
         self.env.sync_from_state(self.state)
 
     def run(self, steps: int, snapshot_each_step: bool = False) -> SimulationState:
-        for step in range(1, steps + 1):
-            self.state.current_step = step
-            self.run_step(snapshot_each_step=snapshot_each_step)
+        for _ in range(max(0, int(steps))):
+            self.step(snapshot_each_step=snapshot_each_step)
         return self.state
+
+    def step(self, snapshot_each_step: bool = False) -> None:
+        self.state.current_step += 1
+        self.run_step(snapshot_each_step=snapshot_each_step)
 
     def run_step(self, snapshot_each_step: bool = False) -> None:
         self.apply_interventions()
@@ -83,6 +87,10 @@ class SimulationEngine:
             # Keep environment controls synchronized before the next environment update.
             self.env.sync_from_state(self.state)
         return records
+
+    def schedule_intervention(self, intervention: Intervention) -> None:
+        self.state.interventions.append(intervention)
+        self.scheduler.add_intervention(intervention)
 
     def update_environment(self) -> None:
         self.env.decay_heat(self.state.posts, current_step=self.state.current_step)
