@@ -1,0 +1,8 @@
+name: demo_experiment
+output_dir: outputs/experiments/demo_experiment
+scenarios:
+  - ../scenarios/demo.yaml
+seeds: [7, 11]
+steps: 6
+snapshot_each_step: true
+write_decision_trace: true

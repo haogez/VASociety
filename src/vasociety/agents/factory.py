@@ -22,6 +22,7 @@ class AgentFactory:
             attrs = PERSONA_TEMPLATES[persona_type]
             interests = self._rng.sample(topics, k=min(len(topics), 2))
             topic_beliefs = {topic: round(self._rng.uniform(0.35, 0.65), 3) for topic in topics}
+            topic_uncertainty = {topic: round(self._rng.uniform(0.35, 0.65), 3) for topic in topics}
             topic_stances = {
                 topic: ("supportive" if belief > 0.58 else "questioning" if belief < 0.42 else "neutral")
                 for topic, belief in topic_beliefs.items()
@@ -34,6 +35,7 @@ class AgentFactory:
                 interest_topics=interests,
                 current_focus_topics=list(interests),
                 topic_beliefs=topic_beliefs,
+                topic_uncertainty=topic_uncertainty,
                 topic_stances=topic_stances,
                 trust_scores=trust_scores,
                 **attrs,

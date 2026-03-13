@@ -1,0 +1,35 @@
+scenario_name: demo_society_v02
+description: Baseline scenario migrated from legacy demo config.
+topics:
+  - healthcare
+  - economy
+  - education
+population_ref: ../populations/demo_population.yaml
+platform_ref: ../platforms/demo_platform.yaml
+simulation:
+  random_seed: 7
+  simulation_steps: 10
+  log_level: INFO
+output:
+  output_dir: outputs/demo_run
+  snapshot_each_step: true
+  write_decision_trace: true
+interventions:
+  - intervention_id: iv_news_1
+    step: 1
+    type: inject_news
+    payload:
+      content: "突发：某地公共资源调配异常，引发社会广泛关注。"
+      topic: healthcare
+      stance: uncertain
+      source_type: official
+      visibility: public
+  - intervention_id: iv_fact_1
+    step: 5
+    type: inject_fact_check
+    payload:
+      content: "权威通报：此前传播的部分信息不准确，已发布核查结果。"
+      topic: healthcare
+      stance: corrective
+      source_type: official
+      visibility: public

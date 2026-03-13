@@ -52,9 +52,18 @@ def test_output_file_generation(tmp_path: Path) -> None:
     state = _run_small()
     save_state(state, tmp_path, write_decision_trace=True)
     assert (tmp_path / "final_state.json").exists()
+    assert (tmp_path / "world_state.json").exists()
+    assert (tmp_path / "run_artifacts.json").exists()
     assert (tmp_path / "metrics_history.json").exists()
     assert (tmp_path / "event_log.jsonl").exists()
+    assert (tmp_path / "perception_log.jsonl").exists()
+    assert (tmp_path / "decision_log.jsonl").exists()
+    assert (tmp_path / "execution_log.jsonl").exists()
+    assert (tmp_path / "intervention_log.jsonl").exists()
+    assert (tmp_path / "metrics_log.jsonl").exists()
     assert (tmp_path / "decision_trace.jsonl").exists()
+    assert (tmp_path / "trace_analysis.json").exists()
+    assert (tmp_path / "explanation_summary.json").exists()
 
 
 def test_backward_compatible_demo_config_runs() -> None:

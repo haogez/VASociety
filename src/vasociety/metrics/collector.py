@@ -49,6 +49,18 @@ class MetricsCollector:
         topic_heat: dict[str, float] = defaultdict(float)
         for post in state.posts.values():
             topic_heat[post.topic] += post.heat
+        intervention_events = [
+            item
+            for item in state.event_log
+            if item.get("event") == "intervention" and int(item.get("step", -1)) == state.current_step
+        ]
+        intervention_type_counts = Counter(
+            str(item.get("payload", {}).get("type", "unknown")) for item in intervention_events
+        )
+        governance_action_count = sum(
+            intervention_type_counts.get(name, 0)
+            for name in {"platform_boost", "platform_suppress", "official_pin", "targeted_push"}
+        )
 
         return MetricsSnapshot(
             step=state.current_step,
@@ -67,4 +79,9 @@ class MetricsCollector:
             corrective_spread_coverage=round(len(corrective_actors) / total_posts, 4) if total_posts else 0.0,
             stance_shift_count=state.stance_shift_count,
             per_step_topic_heat={k: round(v, 4) for k, v in topic_heat.items()},
+            intervention_event_count=len(intervention_events),
+            governance_action_count=governance_action_count,
+            suppressed_content_count=len(state.suppressed_content),
+            pinned_content_count=len(state.official_pinned_content),
+            intervention_type_counts=dict(intervention_type_counts),
         )

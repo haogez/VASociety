@@ -23,3 +23,8 @@ class MetricsSnapshot:
     corrective_spread_coverage: float = 0.0
     stance_shift_count: int = 0
     per_step_topic_heat: dict[str, float] = field(default_factory=dict)
+    intervention_event_count: int = 0
+    governance_action_count: int = 0
+    suppressed_content_count: int = 0
+    pinned_content_count: int = 0
+    intervention_type_counts: dict[str, int] = field(default_factory=dict)
